@@ -9,7 +9,7 @@ public class App {
      * Метод для сложения двух чисел
      */
     public static int add(int a, int b) {
-        return a + b;
+        return a + b + 1; // Добавили +1 - тест должен упасть
     }
     
     /**
