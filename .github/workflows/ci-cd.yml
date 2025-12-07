@@ -1,0 +1,268 @@
+name: Java CI/CD Pipeline
+
+# ============================================
+# 1. ТРИГГЕРЫ (КОГДА ЗАПУСКАТЬ ПАЙПЛАЙН)
+# ============================================
+on:
+  # Запускать при пуше (загрузке изменений) в ветки main или develop
+  push:
+    branches: [ "main", "develop" ]
+  
+  # Запускать при создании Pull Request в ветку main
+  pull_request:
+    branches: [ "main" ]
+  
+  # Ручной запуск из вкладки Actions
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Причина запуска'
+        required: true
+        default: 'Ручной запуск'
+
+# ============================================
+# 2. ОПРЕДЕЛЕНИЕ ДЖОБ
+# ============================================
+jobs:
+  # ДЖОБА 1: Сборка и тестирование
+  build-and-test:
+    # Эта джоба будет запущена на 4 разных операционных системах
+    runs-on: ${{ matrix.os }}
+    
+    # Стратегия матрицы позволяет запустить одну джобу на нескольких конфигурациях
+    strategy:
+      matrix:
+        # Определяем 4 операционные системы для тестирования
+        os: [ubuntu-latest, windows-latest, macos-13, macos-14]
+        # Пояснение:
+        # - ubuntu-latest: последняя версия Ubuntu Linux
+        # - windows-latest: последняя версия Windows
+        # - macos-13: macOS на процессорах Intel
+        # - macos-14: macOS на процессорах Apple Silicon (M1/M2/M3)
+    
+    # Шаги, которые будут выполнены на КАЖДОЙ из 4 систем
+    steps:
+    # ШАГ 1: Получить код из репозитория
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Получить всю историю коммитов
+
+    # ШАГ 2: Настройка Java
+    - name: Set up JDK 11
+      uses: actions/setup-java@v3
+      with:
+        java-version: '11'
+        distribution: 'temurin'  # Дистрибутив Java от Eclipse Adoptium
+        cache: maven  # Кеширование Maven зависимостей для ускорения сборки
+
+    # ШАГ 3: Проверка версий
+    - name: Display versions
+      run: |
+        echo "ОС: ${{ matrix.os }}"
+        echo "Java версия:"
+        java -version
+        echo "Maven версия:"
+        mvn --version
+
+    # ШАГ 4: Сборка проекта
+    - name: Build with Maven
+      run: mvn clean compile -B
+      # Опции:
+      # - clean: очистка предыдущих сборок
+      # - compile: компиляция кода
+      # - -B: batch mode (без интерактивности)
+
+    # ШАГ 5: Запуск тестов
+    - name: Run unit tests
+      run: mvn test -B
+      # После этого шага можно просмотреть отчеты тестов в интерфейсе GitHub
+
+    # ШАГ 6: Создание отчетов
+    - name: Generate test reports
+      if: always()  # Выполнять всегда, даже если тесты упали
+      run: |
+        echo "=== Результаты тестов ==="
+        echo "Все тесты выполнены на ${{ matrix.os }}"
+        
+        # Простой отчет о тестах
+        if [ -f "target/surefire-reports" ]; then
+          echo "Отчеты тестов доступны в target/surefire-reports/"
+        fi
+
+    # ШАГ 7: Упаковка в JAR
+    - name: Package application
+      run: mvn package -DskipTests -B
+      # DskipTests: пропустить тесты (они уже выполнены на шаге 5)
+
+    # ШАГ 8: Сохранение артефактов (JAR файлов)
+    - name: Upload JAR artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: app-${{ matrix.os }}  # Имя артефакта с указанием ОС
+        path: |
+          target/*.jar
+          target/surefire-reports/
+        retention-days: 7  # Хранить артефакты 7 дней
+
+    # ШАГ 9: Проверка JAR файла
+    - name: Verify JAR file
+      run: |
+        echo "Созданные JAR файлы:"
+        ls -la target/*.jar
+        echo ""
+        echo "Информация о основном JAR:"
+        jar tf target/java-ci-cd-demo-*.jar | head -20
+
+  # ДЖОБА 2: Проверка качества кода
+  code-quality:
+    # Эта джоба зависит от успешного завершения build-and-test
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up JDK 11
+      uses: actions/setup-java@v3
+      with:
+        java-version: '11'
+        distribution: 'temurin'
+    
+    - name: Run Maven checkstyle (пример проверки стиля)
+      run: |
+        echo "=== Проверка качества кода ==="
+        echo "Здесь можно добавить:"
+        echo "1. Checkstyle для проверки стиля кода"
+        echo "2. SpotBugs для поиска багов"
+        echo "3. JaCoCo для анализа покрытия кода тестами"
+        echo ""
+        echo "Для демонстрации просто проверяем сборку..."
+        mvn clean compile -B
+
+  # ДЖОБА 3: Деплой приложения
+  deploy:
+    # Эта джоба зависит от УСПЕШНОГО завершения build-and-test
+    needs: 
+      - build-and-test
+      - code-quality
+    # Запускать только при пуше в main (не при Pull Request)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    
+    steps:
+    # ШАГ 1: Загрузка артефакта с JAR файлом
+    - name: Download build artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: app-ubuntu-latest  # Загружаем артефакт с Ubuntu
+    
+    # ШАГ 2: Показать информацию о файлах
+    - name: List files for deployment
+      run: |
+        echo "=== Файлы готовые к деплою ==="
+        ls -la
+        echo ""
+        echo "JAR файлы:"
+        find . -name "*.jar" -type f
+    
+    # ШАГ 3: Демонстрация работы приложения
+    - name: Test the application
+      run: |
+        echo "=== Тестирование приложения ==="
+        # Ищем JAR файл
+        JAR_FILE=$(find . -name "*jar-with-dependencies.jar" -type f | head -1)
+        
+        if [ -f "$JAR_FILE" ]; then
+          echo "Найден JAR файл: $JAR_FILE"
+          echo "Размер файла: $(du -h "$JAR_FILE" | cut -f1)"
+          echo ""
+          echo "Запуск приложения:"
+          java -jar "$JAR_FILE"
+        else
+          echo "JAR файл не найден"
+          exit 1
+        fi
+    
+    # ШАГ 4: Деплой
+    # В реальном проекте здесь были бы команды для деплоя
+    - name: Deploy - SSH Example (DEMO)
+      if: false  # Отключено для демонстрации
+      env:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        SSH_HOST: ${{ secrets.SSH_HOST }}
+        SSH_USER: ${{ secrets.SSH_USER }}
+      run: |
+        echo "=== Пример деплоя по SSH ==="
+        echo "# Реальные команды для настройки SSH:"
+        echo "mkdir -p ~/.ssh"
+        echo "echo \"\$SSH_PRIVATE_KEY\" > ~/.ssh/id_rsa"
+        echo "chmod 600 ~/.ssh/id_rsa"
+        echo ""
+        echo "# Копирование файла на сервер:"
+        echo "scp *.jar \$SSH_USER@\$SSH_HOST:/opt/app/"
+        echo ""
+        echo "# Запуск на сервере:"
+        echo "ssh \$SSH_USER@\$SSH_HOST \"cd /opt/app && java -jar *.jar &\""
+        echo ""
+        echo "Для реального использования:"
+        echo "1. Добавьте секреты в Settings -> Secrets and variables -> Actions"
+        echo "2. Удалите условие 'if: false'"
+        echo "3. Настройте команды под ваш сервер"
+    
+    # ШАГ 5: Деплой на Heroku (альтернативный вариант)
+    - name: Deploy - Heroku Example (DEMO)
+      env:
+        HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+      run: |
+        echo "=== Пример деплоя на Heroku ==="
+        echo "# Установка Heroku CLI:"
+        echo "curl https://cli-assets.heroku.com/install.sh | sh"
+        echo ""
+        echo "# Логин в Heroku:"
+        echo "heroku login -i"
+        echo ""
+        echo "# Создание приложения:"
+        echo "heroku create your-app-name"
+        echo ""
+        echo "# Деплой:"
+        echo "git push heroku main"
+        echo ""
+        echo "Для реального использования установите action:"
+        echo "uses: akhileshns/heroku-deploy@v3.12.12"
+    
+    # ШАГ 6: Имитация успешного деплоя
+    - name: Simulate successful deployment
+      run: |
+        echo "========================================="
+        echo "🚀 ДЕПЛОЙ УСПЕШНО ЗАВЕРШЕН!"
+        echo "========================================="
+        echo ""
+        echo "Приложение собрано и протестировано на:"
+        echo "✅ Ubuntu Linux"
+        echo "✅ Windows"
+        echo "✅ macOS Intel"
+        echo "✅ macOS Apple Silicon"
+        echo ""
+        echo "Все тесты пройдены успешно!"
+        echo "JAR файл создан и готов к работе."
+        echo ""
+        echo "Следующие шаги для реального деплоя:"
+        echo "1. Настройте сервер или облачный хостинг"
+        echo "2. Добавьте секреты в GitHub Secrets"
+        echo "3. Настройте шаги деплоя под вашу инфраструктуру"
+        echo "========================================="
+        
+        # Создаем простой файл с информацией о деплое
+        echo "Deployment Time: $(date)" > deployment-info.txt
+        echo "Commit: ${{ github.sha }}" >> deployment-info.txt
+        echo "Branch: ${{ github.ref }}" >> deployment-info.txt
+        echo "OS: ubuntu-latest" >> deployment-info.txt
+    
+    # ШАГ 7: Сохранение информации о деплое
+    - name: Upload deployment info
+      uses: actions/upload-artifact@v3
+      with:
+        name: deployment-info
+        path: deployment-info.txt
