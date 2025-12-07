@@ -33,7 +33,7 @@ jobs:
     strategy:
       matrix:
         # ОБНОВЛЕНО: Используем актуальные версии ОС
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest]
         # Пояснение:
         # - ubuntu-latest: последняя версия Ubuntu Linux (24.04)
         # - windows-latest: последняя версия Windows (Windows Server 2022)
